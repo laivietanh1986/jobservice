@@ -3,6 +3,7 @@ package com.example.jobservice.service.implement;
 import com.example.jobservice.dto.CreateJobRequest;
 import com.example.jobservice.dto.JobDto;
 import com.example.jobservice.enums.JobStatus;
+import com.example.jobservice.exception.ResourceNotFoundException;
 import com.example.jobservice.model.JobEntity;
 import com.example.jobservice.repository.JobRepository;
 import com.example.jobservice.service.JobService;
@@ -42,7 +43,8 @@ public class JobServiceImplement implements JobService {
 
   @Override
   public JobDto getJobById(long id) {
-   JobEntity jobEntity = jobRepository.getReferenceById(id);
+   JobEntity jobEntity = jobRepository.findById(id)
+       .orElseThrow(() -> new ResourceNotFoundException("Job with id "+  id + " not found"));
    return mapToJobDto(jobEntity);
   }
 
