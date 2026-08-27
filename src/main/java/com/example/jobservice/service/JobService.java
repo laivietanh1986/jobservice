@@ -4,6 +4,7 @@ import com.example.jobservice.dto.CreateJobRequest;
 import com.example.jobservice.dto.JobDto;
 import com.example.jobservice.enums.JobStatus;
 import java.util.List;
+import org.springframework.data.domain.Page;
 
 public interface JobService {
 
@@ -11,7 +12,7 @@ public interface JobService {
 
   JobDto getJobById(long id);
 
-  List<JobDto> getJobs(JobStatus status, int page, int size);
+  Page<JobDto> getJobs(JobStatus status, int page, int size);
 
   List<JobDto> process();
 }

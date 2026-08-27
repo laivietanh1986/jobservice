@@ -29,6 +29,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
@@ -105,13 +107,14 @@ class JobServiceImplementTest {
     JobEntity entity = buildEntity(1L, JobType.CHECK, JobStatus.PENDING, Map.of());
     ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
     when(jobRepository.findByStatus(eq(JobStatus.PENDING), pageableCaptor.capture()))
-        .thenReturn(List.of(entity));
+        .thenReturn(new PageImpl<>(List.of(entity)));
 
-    List<JobDto> result = jobService.getJobs(JobStatus.PENDING, 1, 5);
+    Page<JobDto> result = jobService.getJobs(JobStatus.PENDING, 1, 5);
 
-    assertThat(result).hasSize(1);
-    assertThat(result.get(0).getId()).isEqualTo(1L);
-    assertThat(result.get(0).getStatus()).isEqualTo(JobStatus.PENDING);
+    assertThat(result.getContent()).hasSize(1);
+    assertThat(result.getTotalElements()).isEqualTo(1);
+    assertThat(result.getContent().get(0).getId()).isEqualTo(1L);
+    assertThat(result.getContent().get(0).getStatus()).isEqualTo(JobStatus.PENDING);
 
     Pageable pageable = pageableCaptor.getValue();
     assertThat(pageable.getPageNumber()).isEqualTo(1);

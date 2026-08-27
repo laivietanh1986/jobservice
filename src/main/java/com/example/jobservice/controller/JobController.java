@@ -7,6 +7,7 @@ import com.example.jobservice.service.JobService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,10 +35,10 @@ public class JobController {
     return ResponseEntity.ok(jobDto);
   }
   @GetMapping
-  public ResponseEntity<List<JobDto>> getJobs(@RequestParam JobStatus status,
+  public ResponseEntity<Page<JobDto>> getJobs(@RequestParam JobStatus status,
       @RequestParam int page,
       @RequestParam int size){
-    List<JobDto> jobs = jobService.getJobs(status,page,size);
+    Page<JobDto> jobs = jobService.getJobs(status,page,size);
     return ResponseEntity.ok(jobs);
   }
   @PostMapping("/process")
