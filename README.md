@@ -115,3 +115,29 @@ At this scale, polling a shared table with `SELECT ... FOR UPDATE` from every in
 - Monitor queue depth, consumer lag, and per-job processing latency to catch backlogs early.
 - Track retry counts and `FAILED` job counts as an alerting signal.
 - Because dispatch and processing are decoupled, each can be deployed/restarted independently without losing in-flight work (messages remain in the queue).
+
+### Question B - Database Performance
+
+**Prompt:** The `jobs` table has 50 million records. `GET /api/jobs?status=PENDING&page=0&size=20` becomes slow. How would you investigate the issue and improve the performance?
+
+**Investigation steps**
+1. Log or print the actual SQL Spring Data JPA generates for `findByStatus` (e.g. via `spring.jpa.show-sql=true` or query logging) to confirm what's really being sent — JPA-generated queries sometimes differ from what's expected (e.g. unnecessary joins, `SELECT *`).
+2. Run that query through `EXPLAIN` / `EXPLAIN ANALYZE` to see the actual execution plan: is it doing a sequential scan over 50M rows, or using an index? Check estimated vs. actual row counts and time spent.
+3. Check existing indexes on the table (`status` column, primary key, any composite indexes) and whether pagination (`OFFSET`/`LIMIT`) is contributing — a high page number with plain `OFFSET` still has to scan and discard all preceding rows.
+
+**Likely bottlenecks**
+- No index on `status`, so the query does a full table scan across 50M rows to find `PENDING` ones.
+- Even with an index, `OFFSET`-based pagination gets slower on deeper pages since the database must count/skip all prior matching rows.
+- `PENDING` may also be a small fraction of a 50M-row table, but without an index the engine can't cheaply skip the rest.
+
+**Possible changes**
+- Add an index on `status` (or a composite index on `(status, id)` / `(status, created_at)` if results need ordering) so lookups go through the index instead of a full scan.
+- Consider a **partial index** (e.g. Postgres `WHERE status = 'PENDING'`) if `PENDING` is a small, hot subset — smaller and cheaper to maintain than a full index.
+- Switch pagination from `OFFSET`/`LIMIT` to **keyset (cursor-based) pagination** (`WHERE id > :lastSeenId ORDER BY id LIMIT 20`), which avoids scanning/discarding skipped rows and scales better with deep pages.
+- For very large tables, consider partitioning by `status` or by a time column to reduce the data each query has to touch.
+
+**Trade-offs**
+- `status` only has 4 possible values, so a plain B-tree index has low selectivity and doesn't help much if `PENDING` is a large fraction of the table — but at 50M rows even filtering out 75% of rows is still a meaningful win, so it's worth adding.
+- Every index adds overhead to `INSERT`/`UPDATE` (including the status transitions in `POST /api/jobs/process`), so indexing needs to be weighed against write throughput.
+- A partial index on `PENDING` is cheaper to maintain but only helps that specific query shape — it needs revisiting if the service starts filtering by other statuses too.
+- Keyset pagination changes the API contract slightly (cursor instead of page number) and doesn't support jumping to an arbitrary page, which may or may not be acceptable for this use case.
