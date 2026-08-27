@@ -15,16 +15,18 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @Slf4j
 public class JobServiceImplement implements JobService {
   private final JobRepository jobRepository;
+  private final TransactionTemplate transactionTemplate;
   private static final int MAX_RETRIES = 3;
 
-
-  public JobServiceImplement(JobRepository jobRepository) {
+  public JobServiceImplement(JobRepository jobRepository, TransactionTemplate transactionTemplate) {
     this.jobRepository = jobRepository;
+    this.transactionTemplate = transactionTemplate;
   }
 
   @Override
@@ -54,20 +56,24 @@ public class JobServiceImplement implements JobService {
   }
 
   @Override
-  @Transactional
   public List<JobDto> process() {
-    Pageable pageable = PageRequest.of(0, Integer.MAX_VALUE);
-    List<JobEntity> pendingJobs = jobRepository.findByStatusForUpdate(JobStatus.PENDING, pageable);
+    List<JobEntity> claimedJobs = transactionTemplate.execute(status -> {
+      Pageable pageable = PageRequest.of(0, Integer.MAX_VALUE);
+      List<JobEntity> pendingJobs = jobRepository.findByStatusForUpdate(JobStatus.PENDING, pageable);
+      pendingJobs.forEach(job -> job.setStatus(JobStatus.PROCESSING));
+      return jobRepository.saveAllAndFlush(pendingJobs);
+    });
 
-    pendingJobs.forEach(this::processJobWithRetries);
+    transactionTemplate.executeWithoutResult(status -> {
+      claimedJobs.forEach(this::processJobWithRetries);
+      jobRepository.saveAllAndFlush(claimedJobs);
+    });
 
-    jobRepository.saveAllAndFlush(pendingJobs);
-    return pendingJobs.stream().map(this::mapToJobDto).collect(Collectors.toList());
+    return claimedJobs.stream().map(this::mapToJobDto).collect(Collectors.toList());
   }
 
   private void processJobWithRetries(JobEntity jobEntity) {
-    jobEntity.setStatus(JobStatus.PROCESSING);
-    int retryDelay = 1000; // Initial delay in milliseconds (1 second)
+
     while (jobEntity.getRetryCount() < MAX_RETRIES) {
       try {
         if (isSuccess(jobEntity)) {
@@ -80,15 +86,6 @@ public class JobServiceImplement implements JobService {
         jobEntity.setErrorMessage("Got exception when processing job: " + exception.getMessage());
       }
       jobEntity.setRetryCount(jobEntity.getRetryCount() + 1);
-      // Add timeout between retries
-      try {
-        Thread.sleep(retryDelay); // 2000 milliseconds = 2 seconds
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        jobEntity.setErrorMessage("Retry interrupted: " + e.getMessage());
-        break;
-      }
-      retryDelay *= 2; // Double the delay for the next retry
     }
     jobEntity.setStatus(JobStatus.FAILED);
   }
